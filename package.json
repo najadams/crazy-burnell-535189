@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "vite",
     "typecheck": "tsc --noEmit",
-    "build": "tsc -p tsconfig.build.json --noEmit && vite build",
+    "build": "vite build",
     "package:win": "npm run build && electron-builder --win --x64 --publish never",
     "package:mac": "npm run build && electron-builder --mac --publish never",
     "package:linux": "npm run build && electron-builder --linux --publish never",
