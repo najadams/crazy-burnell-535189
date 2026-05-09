@@ -2,6 +2,7 @@ name: Build Windows installer
 
 on:
   push:
+    branches: [main]     # build on every push to main
     tags: ['v*']         # v1.0.0, v0.2.1, etc.
   workflow_dispatch:     # manual trigger from the Actions tab
   pull_request:          # smoke-build PRs to catch break-the-build changes
