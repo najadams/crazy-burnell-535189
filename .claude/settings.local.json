@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s -L https://api.github.com/repos/nextlevelbuilder/ui-ux-pro-max-skill)",
+      "Bash(xargs kill *)",
+      "Bash(pkill -f \"Electron.*counter\")",
+      "Bash(pkill -f \"dist-electron/main\")",
+      "Bash(npm run *)",
+      "Bash(echo \"Started PID: $!\")",
+      "Bash(curl -sL https://api.github.com/repos/nextlevelbuilder/ui-ux-pro-max-skill/contents)",
+      "Bash(python3.11 -c \"import json,sys; data=json.load\\(sys.stdin\\); [print\\(f\\\\\"{item['type']:10s} {item['name']}\\\\\"\\) for item in data]\")",
+      "Bash(curl -sL https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/main/README.md)"
+    ]
+  }
+}

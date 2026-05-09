@@ -1,0 +1,43 @@
+appId: com.counter.pos
+productName: Counter
+copyright: Counter POS
+
+directories:
+  output: release/${version}
+  buildResources: build
+
+files:
+  - dist/**/*
+  - dist-electron/**/*
+  - package.json
+  - "!**/node_modules/*/{CHANGELOG.md,README.md,readme.md}"
+  - "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}"
+  - "!**/node_modules/*.d.ts"
+  - "!**/node_modules/.bin"
+
+# Native deps (better-sqlite3) need to be unpacked from asar so Electron
+# can dlopen them at runtime.
+asar: true
+asarUnpack:
+  - "**/node_modules/better-sqlite3/**/*"
+  - "**/node_modules/bindings/**/*"
+  - "**/node_modules/file-uri-to-path/**/*"
+
+extraResources:
+  - from: migrations
+    to: migrations
+    filter: ['**/*.sql']
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  artifactName: ${productName}-Setup-${version}.${ext}
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: false                # install to %LocalAppData% — no admin needed
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Counter

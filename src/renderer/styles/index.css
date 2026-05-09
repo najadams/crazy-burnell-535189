@@ -1,0 +1,70 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #root {
+    height: 100%;
+    background: theme('colors.bg-deep');
+    color: theme('colors.text-primary');
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .tnum { font-variant-numeric: tabular-nums; }
+  :focus:not(:focus-visible) { outline: none; }
+  :focus-visible { outline: 2px solid theme('colors.accent'); outline-offset: 2px; }
+}
+
+/* ---- Receipt printing -------------------------------------------------
+ * The SaleDetailModal renders a .receipt-printable wrapper. When the
+ * user clicks "Print receipt" the modal sets body.printing-receipt and
+ * calls window.print(). The rules below hide everything except the
+ * receipt body and re-style it for B&W paper.
+ */
+@media print {
+  body.printing-receipt {
+    background: white !important;
+    color: black !important;
+  }
+  /* Hide everything by default. */
+  body.printing-receipt > * {
+    display: none !important;
+  }
+  /* Only show the modal root that contains the printable receipt. */
+  body.printing-receipt .receipt-modal-root {
+    display: block !important;
+    position: static !important;
+    background: white !important;
+    padding: 0 !important;
+  }
+  body.printing-receipt .receipt-modal-root > div {
+    box-shadow: none !important;
+    border: none !important;
+    background: white !important;
+    color: black !important;
+    max-width: 100% !important;
+    max-height: none !important;
+  }
+  /* Hide non-receipt UI inside the modal. */
+  body.printing-receipt .no-print {
+    display: none !important;
+  }
+  /* Receipt body: minimal print styling. */
+  body.printing-receipt .receipt-printable {
+    color: black !important;
+    padding: 16px !important;
+  }
+  body.printing-receipt .receipt-printable * {
+    color: black !important;
+    border-color: #888 !important;
+    background: white !important;
+  }
+  body.printing-receipt .receipt-printable .receipt-header,
+  body.printing-receipt .receipt-printable .receipt-footer {
+    text-align: center;
+  }
+  body.printing-receipt .receipt-printable .receipt-void-banner {
+    border: 2px solid black !important;
+    color: black !important;
+  }
+}

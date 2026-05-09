@@ -1,0 +1,74 @@
+name: Build Windows installer
+
+on:
+  push:
+    tags: ['v*']         # v1.0.0, v0.2.1, etc.
+  workflow_dispatch:     # manual trigger from the Actions tab
+  pull_request:          # smoke-build PRs to catch break-the-build changes
+
+permissions:
+  contents: write        # needed to draft a release on tag push
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      # `npm ci` runs the `postinstall` script in package.json, which
+      # invokes `electron-builder install-app-deps`. That step rebuilds
+      # better-sqlite3 against the Electron version's V8 ABI — without
+      # it, the packaged app crashes on first DB open with a
+      # "module was compiled against a different Node.js version" error.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Build (vite)
+        run: npm run build
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Package: NSIS installer for x64 Windows.
+      - name: Package Windows installer
+        run: npx electron-builder --win --x64 --publish never
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload installer as build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: counter-windows-installer
+          path: |
+            release/**/*.exe
+            release/**/*.exe.blockmap
+            release/**/latest.yml
+          if-no-files-found: error
+          retention-days: 30
+
+      # On tag push: cut a draft release with the installer attached.
+      # Promote to "published" by hand once tested.
+      - name: Draft GitHub release on tag
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/**/*.exe
+            release/**/latest.yml
+          draft: true
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,12 @@
+node_modules
+dist
+dist-electron
+release
+.vite
+*.log
+.DS_Store
+counter.db
+counter.db-journal
+counter.db-wal
+counter.db-shm
+_smoke_*.mjs
