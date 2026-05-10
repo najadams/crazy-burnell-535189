@@ -14,7 +14,19 @@
       "Bash(curl -sL https://api.github.com/repos/nextlevelbuilder/ui-ux-pro-max-skill/contents/.claude/skills)",
       "Bash(python3.11 -c \"import json,sys; d=json.load\\(sys.stdin\\); [print\\(f\\\\\"{i['type']:6} {i['name']}\\\\\"\\) for i in d] if isinstance\\(d,list\\) else print\\(d.get\\('message','no list'\\)\\)\")",
       "Bash(rm -rf node_modules package-lock.json)",
-      "Bash(npm install *)"
+      "Bash(npm install *)",
+      "Bash(gh auth *)",
+      "Read(//opt/homebrew/bin/**)",
+      "Bash(brew list *)",
+      "Bash(curl -s \"https://api.github.com/repos/najadams/counter/actions/workflows\")",
+      "Bash(python3.11 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d, indent=2\\)[:1500]\\)\")",
+      "Bash(git ls-tree *)",
+      "Bash(curl -s \"https://api.github.com/repos/najadams/counter/actions/runs?per_page=5\")",
+      "Bash(python3.11 -c ' *)",
+      "Bash(git fetch *)",
+      "Bash(curl -s \"https://api.github.com/repos/najadams/counter/actions/runs/25601665067/jobs\")",
+      "Bash(curl -s \"https://api.github.com/repos/najadams/counter\")",
+      "Bash(curl -s \"https://api.github.com/repos/najadams/counter/branches\")"
     ]
   }
 }
