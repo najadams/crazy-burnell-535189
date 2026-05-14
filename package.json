@@ -2,7 +2,7 @@
   "name": "counter",
   "version": "0.1.0",
   "description": "Counter — keyboard-first Electron POS for a Ghanaian beverage distributor.",
-  "main": "dist-electron/main.js",
+  "main": "dist-electron/index.js",
   "type": "module",
   "author": "Naj",
   "license": "ISC",

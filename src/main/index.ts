@@ -11,7 +11,14 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { randomBytes } from 'node:crypto';
+import bcrypt from 'bcryptjs';
 import Database from 'better-sqlite3';
+
+// bcryptjs auto-detects WebCryptoAPI / Node crypto, but the Electron main
+// ESM bundle leaves neither directly visible to it. Wire node:crypto in
+// explicitly so bcrypt.hashSync works during seed and PIN flows.
+bcrypt.setRandomFallback((len) => Array.from(randomBytes(len)));
 
 import { runMigrations } from './db/migrations.js';
 import { ensureDefaults, DEMO_PIN_FOR_HUMANS } from './db/seed.js';
@@ -62,7 +69,7 @@ function createWindow(): void {
     title: 'Counter',
     autoHideMenuBar: true,
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, 'preload.mjs'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
