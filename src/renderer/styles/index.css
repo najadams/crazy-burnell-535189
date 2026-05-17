@@ -68,3 +68,53 @@
     color: black !important;
   }
 }
+
+
+/* ----------------------------------------------------------------------
+ * Portal-mounted print path (PrintableReceipt / PrintableStatement).
+ * The portal target is a direct child of <body> (via createPortal to
+ * document.body), so it's not subject to #root being hidden during
+ * print. The class is display:none on screen and shown during print;
+ * #root is hidden during print so only the portal content reaches the
+ * paper.
+ * --------------------------------------------------------------------*/
+
+.print-portal {
+  display: none;
+}
+
+@media print {
+  /* Hide the live app. #root is React's mount point — everything
+     non-print lives inside it. */
+  body > #root {
+    display: none !important;
+  }
+  /* Show the portal, in normal document flow with white background
+     and black ink. Keep it under 80 mm wide so it looks right on
+     both thermal paper and a piece of A4 print-to-PDF. */
+  body > .print-portal {
+    display: block !important;
+    position: static !important;
+    background: white !important;
+    color: black !important;
+    width: auto !important;
+    max-width: 80mm;
+    margin: 0 auto;
+    padding: 6mm;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    line-height: 1.35;
+  }
+  .print-portal * {
+    color: black !important;
+    background: white !important;
+    border-color: #000 !important;
+  }
+  .print-portal .receipt-printable {
+    color: black !important;
+  }
+  /* Page setup — receipts size to content; A4 fallback fine too. */
+  @page {
+    margin: 6mm;
+  }
+}

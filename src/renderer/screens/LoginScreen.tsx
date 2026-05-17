@@ -6,6 +6,8 @@ import { useEffect, useState } from 'react';
 import { counter } from '../lib/ipc';
 import { useSession } from '../store/session';
 import type { WorkerSummary } from '../../shared/types/ipc';
+import RecoveryResetModal from '../components/RecoveryResetModal';
+import RecoveryIssuedModal from '../components/RecoveryIssuedModal';
 
 interface Props { onLoggedIn: () => void }
 
@@ -16,6 +18,12 @@ export default function LoginScreen({ onLoggedIn }: Props): JSX.Element {
   const [pin, setPin] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Recovery flow: first the reset modal (pick worker + code + new PIN),
+  // then the issued modal (display the rotated recovery code). The
+  // user must dismiss the issued modal explicitly with the "I have
+  // written this down" checkbox before they can sign in.
+  const [resetOpen, setResetOpen] = useState(false);
+  const [issuedCode, setIssuedCode] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -89,6 +97,16 @@ export default function LoginScreen({ onLoggedIn }: Props): JSX.Element {
           {busy ? 'Signing in…' : 'Sign in'}
         </button>
 
+        <div className="text-center text-xs">
+          <button
+            type="button"
+            onClick={() => setResetOpen(true)}
+            className="text-text-tertiary hover:text-text-primary underline"
+          >
+            Forgot PIN?
+          </button>
+        </div>
+
         {onlyDefaultOwner && (
           <div className="text-xs text-text-tertiary border-t border-border pt-3">
             <strong className="text-text-secondary">First run:</strong> the demo OWNER PIN is
@@ -97,6 +115,27 @@ export default function LoginScreen({ onLoggedIn }: Props): JSX.Element {
           </div>
         )}
       </form>
+
+      {resetOpen && (
+        <RecoveryResetModal
+          onClose={() => setResetOpen(false)}
+          onSucceeded={({ newRecoveryCode }) => {
+            setResetOpen(false);
+            setIssuedCode(newRecoveryCode);
+            // Pre-clear the PIN field — the old PIN is dead now,
+            // and we want them to type the new one fresh.
+            setPin('');
+          }}
+        />
+      )}
+
+      {issuedCode && (
+        <RecoveryIssuedModal
+          code={issuedCode}
+          intro="PIN reset successful. This is the new recovery code — the previous one no longer works."
+          onClose={() => setIssuedCode(null)}
+        />
+      )}
     </div>
   );
 }

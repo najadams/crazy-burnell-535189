@@ -14,6 +14,50 @@ import path from 'node:path';
 import type { Database } from 'better-sqlite3';
 import { logAudit } from './auditQuery.js';
 
+// Heartbeat file shape — mirrors what the renderer reads to drive
+// the BackupHealthBanner. Stored at <userData>/last_backup.json
+// after every successful runBackup. Missing file = no backup has
+// ever run; renderer treats that as the "no heartbeat yet" danger
+// state.
+export interface BackupHeartbeat {
+  timestampISO: string;       // ISO timestamp of the last backup attempt
+  targetPath: string;         // where it landed (USB path)
+  sizeBytes: number;
+}
+
+export function writeBackupHeartbeat(userDataPath: string, hb: BackupHeartbeat): void {
+  try {
+    fs.writeFileSync(
+      path.join(userDataPath, 'last_backup.json'),
+      JSON.stringify(hb, null, 2),
+      'utf8',
+    );
+  } catch (err) {
+    // Heartbeat write failures shouldn't surface to the user — the
+    // backup itself succeeded. Log and move on; the banner will say
+    // "no heartbeat" next time it polls, which the user can act on.
+    // eslint-disable-next-line no-console
+    console.warn('writeBackupHeartbeat failed:', err);
+  }
+}
+
+export function readBackupHeartbeat(userDataPath: string): BackupHeartbeat | null {
+  const p = path.join(userDataPath, 'last_backup.json');
+  if (!fs.existsSync(p)) return null;
+  try {
+    const raw = fs.readFileSync(p, 'utf8');
+    const parsed = JSON.parse(raw);
+    if (typeof parsed?.timestampISO !== 'string'
+     || typeof parsed?.targetPath !== 'string'
+     || typeof parsed?.sizeBytes !== 'number') {
+      return null;
+    }
+    return parsed as BackupHeartbeat;
+  } catch {
+    return null;
+  }
+}
+
 export interface BackupResult {
   targetPath: string;
   sizeBytes: number;

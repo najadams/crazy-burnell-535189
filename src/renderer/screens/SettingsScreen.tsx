@@ -8,9 +8,12 @@ import SettingsWorkers from '../components/SettingsWorkers';
 import SettingsProducts from '../components/SettingsProducts';
 import SettingsCustomers from '../components/SettingsCustomers';
 import SettingsBackup from '../components/SettingsBackup';
+import SettingsDayClose from '../components/SettingsDayClose';
+import SettingsRoutes from '../components/SettingsRoutes';
+import SettingsPromotions from '../components/SettingsPromotions';
 
 interface Props { onBack: () => void }
-type Tab = 'loyalty' | 'workers' | 'products' | 'customers' | 'backup';
+type Tab = 'loyalty' | 'workers' | 'products' | 'customers' | 'backup' | 'day-close' | 'routes' | 'promotions';
 
 export default function SettingsScreen({ onBack }: Props): JSX.Element {
   const [tab, setTab] = useState<Tab>('loyalty');
@@ -32,6 +35,9 @@ export default function SettingsScreen({ onBack }: Props): JSX.Element {
         <TabBtn active={tab === 'products'}  onClick={() => setTab('products')}>Products</TabBtn>
         <TabBtn active={tab === 'customers'} onClick={() => setTab('customers')}>Customers</TabBtn>
         <TabBtn active={tab === 'backup'}    onClick={() => setTab('backup')}>Backup</TabBtn>
+        <TabBtn active={tab === 'day-close'} onClick={() => setTab('day-close')}>Day close</TabBtn>
+        <TabBtn active={tab === 'routes'}    onClick={() => setTab('routes')}>Routes</TabBtn>
+        <TabBtn active={tab === 'promotions'} onClick={() => setTab('promotions')}>Promotions</TabBtn>
       </div>
 
       <div className="flex-1 overflow-auto p-6 max-w-4xl mx-auto w-full">
@@ -40,6 +46,9 @@ export default function SettingsScreen({ onBack }: Props): JSX.Element {
         {tab === 'products'  && <SettingsProducts />}
         {tab === 'customers' && <SettingsCustomers />}
         {tab === 'backup'    && <SettingsBackup />}
+        {tab === 'day-close' && <SettingsDayClose />}
+        {tab === 'routes'    && <SettingsRoutes />}
+        {tab === 'promotions' && <SettingsPromotions />}
       </div>
     </div>
   );

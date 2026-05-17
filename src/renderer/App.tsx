@@ -18,6 +18,10 @@ import CustomersScreen from './screens/CustomersScreen';
 import CustomerDetailScreen from './screens/CustomerDetailScreen';
 import SettingsScreen from './screens/SettingsScreen';
 import StockScreen from './screens/StockScreen';
+import PendingOrdersScreen from './screens/PendingOrdersScreen';
+import RouteRunsScreen from './screens/RouteRunsScreen';
+import StocktakeScreen from './screens/StocktakeScreen';
+import DriverHomeScreen from './screens/DriverHomeScreen';
 
 export type Route =
   | { name: 'home' }
@@ -25,10 +29,14 @@ export type Route =
   | { name: 'customers' }
   | { name: 'customer-detail'; customerId: string }
   | { name: 'stock' }
-  | { name: 'settings' };
+  | { name: 'settings' }
+  | { name: 'pending-orders' }
+  | { name: 'route-runs' }
+  | { name: 'stocktake' };
 
 export default function App(): JSX.Element {
   const workerId = useSession((s) => s.workerId);
+  const workerRole = useSession((s) => s.workerRole);
   const setSession = useSession((s) => s.setSession);
 
   const [shiftId, setShiftId] = useState<string | null>(null);
@@ -71,6 +79,9 @@ export default function App(): JSX.Element {
 
   switch (route.name) {
     case 'home':
+      if (workerRole === 'DRIVER') {
+        return <DriverHomeScreen onSignOut={() => setSession(null)} />;
+      }
       return <HomeScreen onNavigate={setRoute} />;
     case 'sale':
       return <SaleScreen onDone={() => setRoute({ name: 'home' })} />;
@@ -92,6 +103,12 @@ export default function App(): JSX.Element {
       return <StockScreen onBack={() => setRoute({ name: 'home' })} />;
     case 'settings':
       return <SettingsScreen onBack={() => setRoute({ name: 'home' })} />;
+    case 'pending-orders':
+      return <PendingOrdersScreen onBack={() => setRoute({ name: 'home' })} />;
+    case 'route-runs':
+      return <RouteRunsScreen onBack={() => setRoute({ name: 'home' })} />;
+    case 'stocktake':
+      return <StocktakeScreen onBack={() => setRoute({ name: 'home' })} />;
     default:
       return <HomeScreen onNavigate={setRoute} />;
   }

@@ -10,6 +10,16 @@ import {
   IPC_CHANNELS_STOCK, IPC_CHANNELS_VOIDS, IPC_CHANNELS_CASH,
   IPC_CHANNELS_ADMIN, IPC_CHANNELS_BACKUP,
   IPC_CHANNELS_PAYMENTS, IPC_CHANNELS_SALE_DETAIL,
+  IPC_CHANNELS_SUPERVISOR, IPC_CHANNELS_PRINT,
+  IPC_CHANNELS_RECOVERY,
+  IPC_CHANNELS_PERIODS,
+  IPC_CHANNELS_PENDING_ORDERS,
+  IPC_CHANNELS_ROUTES,
+  IPC_CHANNELS_ROUTE_RUNS,
+  IPC_CHANNELS_DELIVERIES,
+  IPC_CHANNELS_STOCKTAKE,
+  IPC_CHANNELS_PROMOTIONS,
+  IPC_CHANNELS_CUSTOMER_RETURNS,
 } from '../shared/types/ipc.js';
 import { waveHPreload } from './preload-wave-h.js';
 
@@ -49,6 +59,10 @@ const api = {
   // ---- Sales ----
   createSale: (req: any) =>
     ipcRenderer.invoke(IPC_CHANNELS_SALES.SALES_CREATE, req),
+  verifySupervisorPin: (req: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS_SUPERVISOR.SUPERVISOR_VERIFY_PIN, req),
+  logPrint: (req: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS_PRINT.PRINT_LOG, req),
   recentSales: (req: { limit?: number } = {}) =>
     ipcRenderer.invoke(IPC_CHANNELS_SALES.SALES_RECENT, req),
 
@@ -75,6 +89,101 @@ const api = {
     ipcRenderer.invoke(IPC_CHANNELS_BACKUP.BACKUP_PICK_DIR, {}),
   runBackup: (req: { targetDir: string }) =>
     ipcRenderer.invoke(IPC_CHANNELS_BACKUP.BACKUP_RUN, req),
+  getBackupHeartbeat: () =>
+    ipcRenderer.invoke(IPC_CHANNELS_BACKUP.BACKUP_GET_HEARTBEAT, {}),
+
+
+  // ---- OWNER PIN recovery ----
+  listRecoveryEligible: () =>
+    ipcRenderer.invoke(IPC_CHANNELS_RECOVERY.RECOVERY_LIST_ELIGIBLE, {}),
+  recoveryResetPin: (req: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS_RECOVERY.RECOVERY_VERIFY_AND_RESET, req),
+  regenerateRecoveryCode: (req: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS_RECOVERY.RECOVERY_REGENERATE, req),
+
+  // ---- Period close / day lock ----
+  sealDay: (req: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS_PERIODS.PERIODS_SEAL_DAY, req),
+  reopenDay: (req: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS_PERIODS.PERIODS_REOPEN_DAY, req),
+  listSeals: (req: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS_PERIODS.PERIODS_LIST, req),
+
+  // ---- Pending orders (Wave G chunk 1) ----
+  pendingOrderCreate: (req: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS_PENDING_ORDERS.PENDING_ORDERS_CREATE, req),
+  pendingOrderList: (req: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS_PENDING_ORDERS.PENDING_ORDERS_LIST, req),
+  pendingOrderGet: (req: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS_PENDING_ORDERS.PENDING_ORDERS_GET, req),
+  pendingOrderCancel: (req: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS_PENDING_ORDERS.PENDING_ORDERS_CANCEL, req),
+  pendingOrderConvert: (req: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS_PENDING_ORDERS.PENDING_ORDERS_CONVERT, req),
+  routeCreate: (req: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS_ROUTES.ROUTES_CREATE, req),
+  routeList: (req: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS_ROUTES.ROUTES_LIST, req),
+  routeArchive: (req: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS_ROUTES.ROUTES_ARCHIVE, req),
+  routeReactivate: (req: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS_ROUTES.ROUTES_REACTIVATE, req),
+  routeListStops: (req: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS_ROUTES.ROUTES_LIST_STOPS, req),
+  routeAddStop: (req: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS_ROUTES.ROUTES_ADD_STOP, req),
+  routeRemoveStop: (req: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS_ROUTES.ROUTES_REMOVE_STOP, req),
+  routeReorderStops: (req: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS_ROUTES.ROUTES_REORDER_STOPS, req),
+  routeRunOpen: (req: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS_ROUTE_RUNS.ROUTE_RUNS_OPEN, req),
+  routeRunList: (req: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS_ROUTE_RUNS.ROUTE_RUNS_LIST, req),
+  routeRunGet: (req: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS_ROUTE_RUNS.ROUTE_RUNS_GET, req),
+  routeRunAssign: (req: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS_ROUTE_RUNS.ROUTE_RUNS_ASSIGN, req),
+  routeRunUnassign: (req: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS_ROUTE_RUNS.ROUTE_RUNS_UNASSIGN, req),
+  routeRunClose: (req: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS_ROUTE_RUNS.ROUTE_RUNS_CLOSE, req),
+  routeRunReconcile: (req: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS_ROUTE_RUNS.ROUTE_RUNS_RECONCILE, req),
+  routeRunReopen: (req: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS_ROUTE_RUNS.ROUTE_RUNS_REOPEN, req),
+  routeRunMyOpen: () =>
+    ipcRenderer.invoke(IPC_CHANNELS_ROUTE_RUNS.ROUTE_RUNS_MY_OPEN, {}),
+  deliveryRecord: (req: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS_DELIVERIES.DELIVERY_RECORD, req),
+  deliveryListForRun: (req: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS_DELIVERIES.DELIVERY_LIST_FOR_RUN, req),
+  deliveryGetForOrder: (req: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS_DELIVERIES.DELIVERY_GET_FOR_ORDER, req),
+  stocktakeOpen: (req: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS_STOCKTAKE.STOCKTAKE_OPEN, req),
+  stocktakeRecord: (req: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS_STOCKTAKE.STOCKTAKE_RECORD, req),
+  stocktakeList: (req: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS_STOCKTAKE.STOCKTAKE_LIST, req),
+  stocktakeLines: (req: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS_STOCKTAKE.STOCKTAKE_LINES, req),
+  stocktakeClose: (req: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS_STOCKTAKE.STOCKTAKE_CLOSE, req),
+  stocktakeCancel: (req: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS_STOCKTAKE.STOCKTAKE_CANCEL, req),
+  promotionList: (req: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS_PROMOTIONS.PROMOTIONS_LIST, req),
+  promotionCreate: (req: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS_PROMOTIONS.PROMOTIONS_CREATE, req),
+  promotionArchive: (req: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS_PROMOTIONS.PROMOTIONS_ARCHIVE, req),
+  promotionReactivate: (req: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS_PROMOTIONS.PROMOTIONS_REACTIVATE, req),
+  customerReturnRecord: (req: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS_CUSTOMER_RETURNS.CUSTOMER_RETURN_RECORD, req),
+  customerReturnList: (req: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS_CUSTOMER_RETURNS.CUSTOMER_RETURN_LIST, req),
 
   // ---- Customer payments + sale detail ----
   recordCustomerPayment: (req: any) =>

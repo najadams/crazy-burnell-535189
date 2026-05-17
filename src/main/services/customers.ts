@@ -6,6 +6,7 @@ import type { CustomerSummary } from '../../shared/types/ipc.js';
 const SELECT_CUSTOMER = `
   SELECT id, display_name AS displayName, phone,
          customer_type AS customerType,
+         credit_limit_pesewas AS creditLimitPesewas,
          current_balance_pesewas AS currentBalancePesewas,
          blocked
     FROM customers`;

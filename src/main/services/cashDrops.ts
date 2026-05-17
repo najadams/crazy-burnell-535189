@@ -9,6 +9,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { Database } from 'better-sqlite3';
 import { logAudit } from './auditQuery.js';
+import { assertNotSealed } from './periods.js';
 
 export type CashDropReason =
   | 'OWNER_TAKE'
@@ -33,8 +34,17 @@ export function recordCashDrop(
     ? `${reason}: ${note.trim()}`
     : reason;
 
+  // Resolve the shift's location for the day-lock gate. The cash
+  // drop is dated today and tagged to this shift's location.
+  const shiftRow = db.prepare(
+    `SELECT location_id AS locationId FROM shifts WHERE id = ?`,
+  ).get(shiftId) as { locationId: string } | undefined;
+  if (!shiftRow) throw new Error('Shift not found.');
+
   const dropId = `cc-${uuidv4()}`;
   const tx = db.transaction(() => {
+    assertNotSealed(db, shiftRow.locationId, new Date().toISOString(), 'Recording this cash drop');
+
     db.prepare(
       `INSERT INTO cash_counts
          (id, shift_id, count_type, amount_pesewas, notes,

@@ -8,6 +8,12 @@ import CustomerCreditTab from '../components/CustomerCreditTab';
 import { formatMoney } from '../../shared/lib/money';
 import { formatGhanaPhone } from '../../shared/lib/phone';
 import type { CustomerSummary } from '../../shared/types/ipc';
+import {
+  type ReceiptShop, type StatementCustomer, type StatementOpenInvoice,
+  type StatementPayment, type StatementData,
+} from '../lib/printing';
+import PrintableStatement from '../components/PrintableStatement';
+import RecordCustomerReturnModal from '../components/RecordCustomerReturnModal';
 
 interface Props {
   customerId: string;
@@ -45,6 +51,76 @@ export default function CustomerDetailScreen({ customerId, onBack }: Props): JSX
     })();
   }, [tab, customerId]);
 
+  const [printingStatement, setPrintingStatement] = useState(false);
+  // When non-null, PrintableStatement mounts and triggers
+  // window.print() once. onDone clears it.
+  const [pendingStatement, setPendingStatement] = useState<{
+    shop: ReceiptShop;
+    data: StatementData;
+  } | null>(null);
+  const [showRecordReturn, setShowRecordReturn] = useState(false);
+
+  // Assemble the statement payload from existing endpoints, then
+  // hand off to the portal-mounted PrintableStatement component.
+  // Best-effort — surface fetch errors on screen rather than crashing.
+  async function handlePrintStatement(): Promise<void> {
+    if (!customer || printingStatement) return;
+    setPrintingStatement(true);
+    setError(null);
+    try {
+      const [dev, open, pays] = await Promise.all([
+        counter.deviceConfig(),
+        counter.openCreditSales({ customerId }),
+        counter.listPayments({ customerId, limit: 20 }),
+      ]);
+      const shop: ReceiptShop = dev.success
+        ? {
+            shopName: dev.data.shopName,
+            shopSubtitle: dev.data.shopSubtitle,
+            ownerPhone: dev.data.ownerPhone,
+          }
+        : { shopName: 'Counter', shopSubtitle: '', ownerPhone: null };
+
+      const statementCustomer: StatementCustomer = {
+        customerId,
+        displayName: customer.displayName,
+        phone: customer.phone,
+        creditLimitPesewas: customer.creditLimitPesewas,
+        currentBalancePesewas: customer.currentBalancePesewas,
+        blocked: customer.blocked,
+      };
+      const openInvoices: StatementOpenInvoice[] = open.success
+        ? open.data.sales.map((s) => ({
+            saleId: s.saleId,
+            createdAtISO: s.createdAt,
+            totalPesewas: s.totalPesewas,
+            remainingPesewas: s.openBalancePesewas,
+          }))
+        : [];
+      const recentPayments: StatementPayment[] = pays.success
+        ? pays.data.payments.map((p) => ({
+            paymentId: p.paymentId,
+            createdAtISO: p.createdAt,
+            amountPesewas: p.amountPesewas,
+            paymentMethod: p.paymentMethod,
+          }))
+        : [];
+
+      setPendingStatement({
+        shop,
+        data: {
+          customer: statementCustomer,
+          asOfISO: new Date().toISOString(),
+          openInvoices,
+          recentPayments,
+        },
+      });
+    } catch (e: any) {
+      setError(e?.message ?? 'Could not print statement.');
+      setPrintingStatement(false);
+    }
+  }
+
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
@@ -62,6 +138,21 @@ export default function CustomerDetailScreen({ customerId, onBack }: Props): JSX
             </div>
           )}
         </div>
+        {customer && (
+          <div className="flex items-baseline gap-2">
+            <button
+              onClick={() => setShowRecordReturn(true)}
+              className="text-xs border border-warning text-warning px-3 py-1.5 hover:bg-warning hover:text-bg-deep"
+            >Record return</button>
+            <button
+              onClick={() => void handlePrintStatement()}
+              disabled={printingStatement}
+              className="text-xs border border-border px-3 py-1.5 hover:bg-bg-elevated disabled:opacity-50"
+            >
+              {printingStatement ? 'Printing…' : 'Print statement'}
+            </button>
+          </div>
+        )}
       </header>
 
       {/* Tabs */}
@@ -140,6 +231,33 @@ export default function CustomerDetailScreen({ customerId, onBack }: Props): JSX
           <CustomerPerformanceTab customerId={customer.id} />
         )}
       </div>
+
+      {pendingStatement && (
+        <PrintableStatement
+          shop={pendingStatement.shop}
+          data={pendingStatement.data}
+          onDone={() => {
+            setPendingStatement(null);
+            setPrintingStatement(false);
+          }}
+        />
+      )}
+
+      {showRecordReturn && customer && (
+        <RecordCustomerReturnModal
+          customerId={customer.id}
+          customerName={customer.displayName}
+          onClose={() => setShowRecordReturn(false)}
+          onRecorded={(_id, total) => {
+            setShowRecordReturn(false);
+            window.alert(`Return recorded. Total refund: ₵${(total / 100).toFixed(2)}.`);
+            (async () => {
+              const r = await counter.getCustomer({ customerId: customer.id });
+              if (r.success) setCustomer(r.data.customer);
+            })();
+          }}
+        />
+      )}
     </div>
   );
 }

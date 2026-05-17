@@ -21,6 +21,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { Database } from 'better-sqlite3';
 import { logAudit } from './auditQuery.js';
+import { assertNotSealed } from './periods.js';
 
 export type PaymentMethod = 'CASH' | 'MOMO' | 'BANK' | 'RETURN_CREDIT';
 
@@ -53,6 +54,21 @@ export function recordCustomerPayment(
   const paymentId = `cp-${uuidv4()}`;
   let unallocated = input.amountPesewas;
   const allocations: RecordPaymentResult['allocations'] = [];
+
+  // Day-lock gate. customer_payments isn't location-tagged in the
+  // schema (Section 17 of CLAUDE.md), so we infer location from the
+  // attached shift when present. After-hours MoMo/bank notifications
+  // (shiftId === null) skip the gate — those are reconciliation
+  // entries that don't change the shift's till math; the audit log
+  // still records them.
+  if (input.shiftId) {
+    const shiftRow = db.prepare(
+      `SELECT location_id AS locationId FROM shifts WHERE id = ?`,
+    ).get(input.shiftId) as { locationId: string } | undefined;
+    if (shiftRow) {
+      assertNotSealed(db, shiftRow.locationId, new Date().toISOString(), 'Recording this payment');
+    }
+  }
 
   const tx = db.transaction(() => {
     db.prepare(

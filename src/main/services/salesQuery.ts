@@ -33,6 +33,17 @@ export interface SaleDetail {
     shopSubtitle: string;
     ownerPhone: string | null;
   };
+  // Per-method tender breakdown for reprints. Computed from
+  // sale_payments rows (after migration 0007). Pre-backfill legacy
+  // sales may have all zeros — the caller falls back to displaying
+  // sale.paymentMethod + sale.totalPesewas in that case.
+  paymentBreakdown: {
+    cashPaidPesewas: number;
+    momoPaidPesewas: number;
+    bankPaidPesewas: number;
+    creditPesewas: number;
+    changePesewas: number;
+  };
 }
 
 export function getSaleById(db: Database, saleId: string): SaleDetail {
@@ -81,6 +92,22 @@ export function getSaleById(db: Database, saleId: string): SaleDetail {
     shopName: 'Counter Shop', shopSubtitle: '', ownerPhone: null,
   };
 
+  // Sum sale_payments by method so reprints can show "Cash X, MoMo Y,
+  // On credit Z, Change W". Change is computed across CASH rows from
+  // (cash_given - amount) — the per-row excess. Non-cash rows have
+  // no cash_given.
+  const breakdownRow = db.prepare(
+    `SELECT
+        COALESCE(SUM(CASE WHEN payment_method='CASH'   THEN amount_pesewas END), 0) AS cashPaidPesewas,
+        COALESCE(SUM(CASE WHEN payment_method='MOMO'   THEN amount_pesewas END), 0) AS momoPaidPesewas,
+        COALESCE(SUM(CASE WHEN payment_method='BANK'   THEN amount_pesewas END), 0) AS bankPaidPesewas,
+        COALESCE(SUM(CASE WHEN payment_method='CREDIT' THEN amount_pesewas END), 0) AS creditPesewas,
+        COALESCE(SUM(CASE WHEN payment_method='CASH'
+                          THEN COALESCE(cash_given_pesewas, amount_pesewas) - amount_pesewas
+                          END), 0) AS changePesewas
+       FROM sale_payments WHERE sale_id = ?`,
+  ).get(saleId) as SaleDetail['paymentBreakdown'];
+
   return {
     sale: {
       id: sale.id, createdAt: sale.createdAt, channel: sale.channel,
@@ -90,5 +117,6 @@ export function getSaleById(db: Database, saleId: string): SaleDetail {
       subtotalPesewas: sale.subtotalPesewas, totalPesewas: sale.totalPesewas,
     },
     customer, worker, lines, shopHeader,
+    paymentBreakdown: breakdownRow,
   };
 }

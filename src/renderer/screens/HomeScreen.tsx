@@ -15,6 +15,7 @@ import type { Route } from '../App';
 import { formatMoney, parseCedisToPesewas } from '../../shared/lib/money';
 import CashDropModal from '../components/CashDropModal';
 import SaleDetailModal from '../components/SaleDetailModal';
+import BackupHealthBanner from '../components/BackupHealthBanner';
 
 interface Props { onNavigate: (r: Route) => void }
 
@@ -95,13 +96,19 @@ export default function HomeScreen({ onNavigate }: Props): JSX.Element {
         </button>
       </header>
 
-      <div className="flex-1 p-6 grid grid-cols-2 gap-4 max-w-3xl mx-auto w-full content-start">
+      <div className="flex-1 p-6 max-w-3xl mx-auto w-full content-start">
+      <BackupHealthBanner />
+      <div className="grid grid-cols-2 gap-4">
         <ActionButton label="New sale"   desc="Ring up a customer"        onClick={() => onNavigate({ name: 'sale' })} accent />
         <ActionButton label="Customers"  desc="Browse, scorecards, leaderboard" onClick={() => onNavigate({ name: 'customers' })} />
         <ActionButton label="Stock"      desc="On hand and receive shipments" onClick={() => onNavigate({ name: 'stock' })} />
         <ActionButton label="Cash drop"  desc="Record cash leaving the till"  onClick={() => setShowCashDrop(true)} />
+        <ActionButton label="Orders"     desc="Phone orders + route conversion"  onClick={() => onNavigate({ name: 'pending-orders' })} />
+        <ActionButton label="Route runs" desc="Open/close runs; assign orders"    onClick={() => onNavigate({ name: 'route-runs' })} />
+        <ActionButton label="Stocktake"  desc="Cycle counting and adjustments"    onClick={() => onNavigate({ name: 'stocktake' })} />
         <ActionButton label="Settings"   desc="Loyalty, workers, products, backup" onClick={() => onNavigate({ name: 'settings' })} />
         <ActionButton label="Close shift" desc="Count the till and sign out" onClick={() => void closeShift()} />
+      </div>
       </div>
 
       {closingError && (

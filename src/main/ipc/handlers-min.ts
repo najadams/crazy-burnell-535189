@@ -26,6 +26,7 @@ import type {
   ProductCreateRequest, ProductCreateResponse,
   CustomerCreateRequest, CustomerCreateResponse,
   BackupPickDirResponse, BackupRunRequest, BackupRunResponse,
+  BackupHeartbeatResponse,
   SessionInfo,
 } from '../../shared/types/ipc.js';
 
@@ -36,7 +37,8 @@ import { recordCashDrop } from '../services/cashDrops.js';
 import { changePin } from '../services/workersAdmin.js';
 import { createProduct } from '../services/productsAdmin.js';
 import { createCustomer } from '../services/customersAdmin.js';
-import { runBackup } from '../services/backup.js';
+import { runBackup, writeBackupHeartbeat, readBackupHeartbeat } from '../services/backup.js';
+import { app } from 'electron';
 
 interface Helpers {
   wrap: <Req, Res>(
@@ -205,9 +207,32 @@ export function registerMinHandlers(
     wrap<BackupRunRequest, BackupRunResponse>(
       (req) => {
         const w = requireOwnerLike();
-        return runBackup(db, req.targetDir, w.workerId, deviceId);
+        const result = runBackup(db, req.targetDir, w.workerId, deviceId);
+        // Write the heartbeat so the HomeScreen banner can see how
+        // long ago the last backup ran. Failures here are non-fatal —
+        // logged inside the service, but they don't fail the IPC call.
+        writeBackupHeartbeat(app.getPath('userData'), {
+          timestampISO: result.timestampISO,
+          targetPath: result.targetPath,
+          sizeBytes: result.sizeBytes,
+        });
+        return result;
       },
       IPC_CHANNELS_BACKUP.BACKUP_RUN,
+    ),
+  );
+
+  // Heartbeat read for the HomeScreen banner. Returns null if no
+  // backup has ever run (the banner shows the "no heartbeat" state
+  // for that case).
+  ipcMain.handle(IPC_CHANNELS_BACKUP.BACKUP_GET_HEARTBEAT,
+    wrap<{}, BackupHeartbeatResponse>(
+      () => {
+        requireWorker();
+        const hb = readBackupHeartbeat(app.getPath('userData'));
+        return { heartbeat: hb };
+      },
+      IPC_CHANNELS_BACKUP.BACKUP_GET_HEARTBEAT,
     ),
   );
 }

@@ -6,13 +6,15 @@
 // hidden by @media print rules, so the on-screen modal becomes a
 // clean printable receipt without a separate window.
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { counter } from '../lib/ipc';
 import { useSession } from '../store/session';
 import { formatMoney } from '../../shared/lib/money';
 import { formatGhanaPhone } from '../../shared/lib/phone';
 import VoidSaleModal from './VoidSaleModal';
+import PrintableReceipt from './PrintableReceipt';
 import type { SaleGetByIdResponse } from '../../shared/types/ipc';
+import type { ReceiptData, ReceiptShop } from '../lib/printing';
 
 interface Props {
   saleId: string;
@@ -27,7 +29,13 @@ export default function SaleDetailModal({ saleId, onClose, onChanged }: Props): 
   const [data, setData] = useState<SaleGetByIdResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [voidOpen, setVoidOpen] = useState(false);
-  const printRef = useRef<HTMLDivElement>(null);
+  // When non-null, PrintableReceipt mounts (portalled to document.body)
+  // and triggers window.print() once. The old body-class print path
+  // never actually worked because @media print's `body > *` rule
+  // hides #root, which contains this modal — so the printed page
+  // was always blank. PrintableReceipt sidesteps that by mounting
+  // outside #root.
+  const [printingData, setPrintingData] = useState<ReceiptData | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -38,14 +46,25 @@ export default function SaleDetailModal({ saleId, onClose, onChanged }: Props): 
   }, [saleId]);
 
   function printReceipt() {
-    // Add a body class so the @media print stylesheet hides everything
-    // except the .receipt-printable contents inside this modal.
-    document.body.classList.add('printing-receipt');
-    // Browser opens its print dialog synchronously; we restore after.
-    setTimeout(() => {
-      window.print();
-      document.body.classList.remove('printing-receipt');
-    }, 50);
+    if (!data) return;
+    setPrintingData({
+      saleId: data.sale.id,
+      createdAtISO: data.sale.createdAt,
+      cashierName: data.worker.fullName,
+      customerName: data.customer?.displayName ?? null,
+      channel: data.sale.channel as 'WALK_IN' | 'WHOLESALE' | 'ROUTE',
+      lines: data.lines.map((l) => ({
+        productName: l.productName,
+        quantity: l.quantity,
+        unitPricePesewas: l.unitPricePesewas,
+      })),
+      totalPesewas: data.sale.totalPesewas,
+      cashPaidPesewas: data.paymentBreakdown.cashPaidPesewas,
+      momoPaidPesewas: data.paymentBreakdown.momoPaidPesewas,
+      bankPaidPesewas: data.paymentBreakdown.bankPaidPesewas,
+      creditPesewas:   data.paymentBreakdown.creditPesewas,
+      changePesewas:   data.paymentBreakdown.changePesewas,
+    });
   }
 
   return (
@@ -64,8 +83,11 @@ export default function SaleDetailModal({ saleId, onClose, onChanged }: Props): 
 
         {data && (
           <>
-            {/* The receipt-printable wrapper is what survives print(). */}
-            <div ref={printRef} className="receipt-printable px-6 py-5 space-y-4">
+            {/* On-screen sale summary. (Note: this div is no longer
+                 the print target — PrintableReceipt portalled to
+                 document.body handles printing now. The class names
+                 below are kept for the on-screen styling only.) */}
+            <div className="receipt-printable px-6 py-5 space-y-4">
               <div className="text-center receipt-header">
                 <div className="text-lg font-semibold">{data.shopHeader.shopName}</div>
                 <div className="text-xs text-text-tertiary">{data.shopHeader.shopSubtitle}</div>
@@ -182,6 +204,19 @@ export default function SaleDetailModal({ saleId, onClose, onChanged }: Props): 
             onChanged?.();
             onClose();
           }}
+        />
+      )}
+
+      {printingData && data && (
+        <PrintableReceipt
+          shop={{
+            shopName: data.shopHeader.shopName,
+            shopSubtitle: data.shopHeader.shopSubtitle,
+            ownerPhone: data.shopHeader.ownerPhone,
+          } satisfies ReceiptShop}
+          data={printingData}
+          reprint
+          onDone={() => setPrintingData(null)}
         />
       )}
     </div>

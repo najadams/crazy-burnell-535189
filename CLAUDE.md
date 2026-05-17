@@ -312,10 +312,48 @@ get reconciled in Phase 3 of the business plan.
 
 ## 6. Customer credit & returns
 
-### Sales on credit
-A sale with `payment_method = 'CREDIT'` sets `is_credit=1`, increases
-`customers.current_balance_pesewas`, and creates no `sale_payments` row
-(or a CREDIT-method row, depending on UI flow).
+### Sales on credit and partial payments
+
+Every non-voided sale produces one or more `sale_payments` rows whose
+amounts sum to `sales.total_pesewas` — the invariant is enforced in
+service code (see `createSale` in `sales.ts`), not by a database
+CHECK constraint, because SQLite can't express cross-row sums.
+
+The row shapes that produce a credit-bearing sale:
+
+- **Full credit** (customer takes goods, pays later): one
+  `sale_payments` row with `payment_method = 'CREDIT'` and
+  `amount_pesewas = total_pesewas`. `sales.is_credit = 1` and
+  `sales.payment_method = 'CREDIT'`. The customer's
+  `current_balance_pesewas` increments by the CREDIT row's amount.
+
+- **Partial payment** (customer pays some now, owes the rest): one
+  row per non-zero tender, plus a CREDIT row for the remainder.
+  Example: ₵100 sale, customer hands over ₵60 cash → two rows,
+  `CASH ₵60` and `CREDIT ₵40`. `sales.is_credit = 1` and
+  `sales.payment_method = 'MIXED'`. The balance increments by the
+  CREDIT row's amount (₵40), never by the total. Mixed tenders
+  beyond cash + credit are supported by the same shape:
+  `CASH + MOMO + CREDIT`, `MOMO + BANK + CREDIT`, etc.
+
+A pure-cash, pure-MoMo, or pure-bank sale produces a single
+non-CREDIT row summing to the total and leaves `is_credit = 0`.
+
+**Over-limit gate.** When the projected customer balance
+(`current_balance_pesewas + creditRowAmount`) would exceed
+`credit_limit_pesewas`, the caller must supply a `supervisorApprovalId`
+— a one-shot, time-bounded approval row from
+`supervisor_approvals` (migration 0008, service
+`supervisorApprovals.ts`). The approval is consumed inside the
+sale transaction; a duplicate-completion attempt with the same id
+fails. Same pattern is available to other elevated actions
+(over-threshold discount, breakage, void) when they're built.
+
+**Voids reverse by CREDIT row, not total.** `voids.ts` decrements
+`current_balance_pesewas` by `SUM(sale_payments WHERE
+payment_method = 'CREDIT')` for the sale, falling back to
+`total_pesewas` only for pre-backfill legacy sales (those with no
+`sale_payments` rows at all).
 
 In the route-distribution business model, retailer customers commonly run
 on net-7 credit terms; this is the default path, not an exception path.
@@ -677,9 +715,12 @@ The TS2717 floor stays at zero.
 
 Schema state: 22 implemented migrations (0001–0004, 0011–0028).
 Planned: Wave G adds 0029–0032 (4 migrations), Wave H adds 0033 (1
-migration), Section 19 (voice agent) adds 0034 (AGENT role). Total
-projected: 28 migrations once all three planned waves ship. Total
-verifier coverage in this iteration: **67/67 PASS** across 6 new flows
+migration). Total projected: 27 migrations once both planned waves
+ship. (Section 19's voice-intake agent and its companion migration
+0034 for an AGENT role were scoped out on 2026-05-11 — see Section 19
+for the deferral note. Orders come in by phone and are typed in
+manually at the depot under the new operating model.) Total verifier
+coverage in this iteration: **67/67 PASS** across 6 new flows
 (heartbeat, statement, price overrides, returns, promotions, empties).
 Wave H verification target: 12+ assertions per Section 20.11.
 
@@ -726,12 +767,6 @@ In scope for Wave G core (Stage 4B):
 - Driver client (separate UI) running on a phone or tablet, syncing to
   the depot DB over LAN.
 
-Deferred but planned within Wave G:
-- **Voice-order pipeline.** Stage 4C (months 9–11) wires a voice-intake
-  agent that writes into the same `pending_orders` table. The agent is
-  another `intake_channel` value; no new schema is required. See the
-  agent design notes that accompany this spec.
-
 Out of scope for Wave G entirely:
 - Route optimization or auto-routing. Routes are statically defined by
   the depot lead.
@@ -746,8 +781,7 @@ Out of scope for Wave G entirely:
 | ----- | ------ | ----------- |
 | 4A | 6–7 | Counter deployed at depot as-is. Workers trained. **No new code.** |
 | 4B | 7–9 | Migrations 0029–0030. `pendingOrders` and `routes` services. Manual order entry and route-assignment UI at depot. Convert-to-sale flow. |
-| 4C | 9–11 | Voice-order pipeline writes into `pending_orders` (`intake_channel ∈ {WHATSAPP_VOICE, PHONE_CALL}`). No new Counter schema; the existing depot review flow handles voice-derived orders, with a confidence score on the row to prioritise human review. |
-| 4D | 11–12+ | Migrations 0031–0032. Driver client. Per-stop delivery confirmation. Route-run shifts and blind cash counts. |
+| 4D | 9–12+ | Migrations 0031–0032. Driver client. Per-stop delivery confirmation. Route-run shifts and blind cash counts. |
 
 Stages must ship in order. Skipping ahead breaks the discipline rule from
 Section 0.
@@ -758,14 +792,20 @@ Section 0.
 pending_orders (
   id PK,                          -- po-{uuid}
   customer_id FK NOT NULL,
-  intake_channel CHECK IN ('MANUAL','WHATSAPP_TEXT','WHATSAPP_VOICE','PHONE_CALL'),
-  intake_worker_id FK,            -- who captured it at the depot (or the agent's synthetic worker_id)
-  intake_confidence REAL NULL,    -- 0.0-1.0 STT/LLM confidence; NULL for MANUAL
-  intake_recording_path TEXT NULL, -- relative path under <userData>/intake/...
+  -- All orders are captured by a human at the depot under the current
+  -- operating model. PHONE_CALL is the dominant channel; MANUAL covers
+  -- in-person and standing-order top-ups; WHATSAPP_TEXT covers typed
+  -- WhatsApp messages the depot lead transcribes. The voice-intake
+  -- agent channels (Section 19) were scoped out on 2026-05-11.
+  intake_channel CHECK IN ('MANUAL','PHONE_CALL','WHATSAPP_TEXT'),
+  intake_worker_id FK,            -- the depot worker who captured the order
   created_at, requested_delivery_date,
   status CHECK IN ('CREATED','ASSIGNED','PICKED','OUT_FOR_DELIVERY',
                    'DELIVERED','FAILED','CONVERTED','CANCELLED'),
-  requires_review INTEGER NOT NULL DEFAULT 0,  -- 1 for low-confidence intake
+  -- Manually flaggable by the depot lead when an order looks off and
+  -- they want a second pair of eyes before it goes out — quantity
+  -- spike, unfamiliar customer, etc. Always 0 by default.
+  requires_review INTEGER NOT NULL DEFAULT 0,
   assigned_route_run_id FK NULL,
   pick_started_at, pick_completed_at,
   conversion_sale_id FK NULL,
@@ -903,11 +943,6 @@ everything else.
   new pending_order, or do we discount the original pending_order to
   what was delivered and cancel the undelivered lines? Lean toward the
   first (cleaner audit trail) but defer until real partial cases appear.
-- **Voice-order confidence threshold.** What transcription confidence
-  triggers human review vs. straight-through to PendingOrdersScreen for
-  approval? `pending_orders.intake_confidence` is captured for every
-  voice/agent-derived order; the threshold is set at deployment time and
-  tuned during the Stage 4C pilot.
 - **Return-intent processing.** The driver records intent
   (`return_intent_lines` JSON on delivery_attempt) but the formal
   `customer_returns` entity is created at depot. Lean
@@ -923,243 +958,45 @@ everything else.
 
 ---
 
-## 19. Voice intake agent (planned, parallel track)
+## 19. Voice intake agent (deferred — 2026-05-11)
 
-This section describes the voice/messaging agent that captures orders from
-retailer customers calling on feature phones. It is structurally parallel
-to Section 18 — same level of constraint, deferred deployment, explicit
-non-goals — but **decoupled from the Wave G stage gate.** The agent does
-not modify Counter's schema or services; it produces `pending_orders`
-rows like any other intake channel. It can be prototyped against
-recorded calls during Phases 0–2 without violating the discipline rule
-in Section 0, because that rule applies to Counter feature work, not to
-research projects that produce inputs to Counter.
+The voice/messaging agent originally specified here (a Twilio-fed
+STT + LLM pipeline that captured retailer orders from feature-phone
+calls and wrote `pending_orders` rows under an AGENT worker role)
+has been scoped out. The decision was made on 2026-05-11. Orders
+will be captured manually under the new operating model: a depot
+worker (typically the depot lead) answers the phone, listens to the
+order, and types it into the `pending_orders` form. The same flow
+covers in-person walk-ups and typed WhatsApp messages. The driver
+later delivers and collects payment at the doorstep, and the order
+is converted to a sale at the depot under the existing Wave G
+conversion path (Section 18.5).
 
-Production deployment is gated on Stage 4C (months 9–11) of the
-operating plan, when the existing manual `pending_orders` review flow
-from Stage 4B is stable and the depot lead can backstop the agent's
-mistakes.
+What this removes from the build surface: Stage 4C of the operating
+plan (months 9–11 of the original phasing); the AGENT worker role
+(the planned migration 0034 is unused); the `intake_confidence`
+and `intake_recording_path` columns on `pending_orders` (also
+removed from Section 18.3); the speculative `requires_review`
+semantics tied to low-confidence transcription (the column stays,
+but now means "depot lead manually flagged this for review"); the
+STT vendor evaluation (19-A); the offline-prototype work (19-B);
+the live-deployment guardrails (19-C/D); and the non-deployment
+checklist at 19.8.
 
-### 19.1 Scope and non-goals
+What this does not change: the rest of Wave G is unaffected.
+Pending orders, routes, route runs, delivery attempts, the driver
+client, and the conversion flow all stay as specified in Section 18.
+Manual phone intake is just another value of `intake_channel`
+(`PHONE_CALL`), captured by a human, indistinguishable downstream
+from an in-person manual entry.
 
-In scope:
-- Inbound voice calls from a whitelisted set of customer phone numbers
-  (the pilot target is two retailers; expansion is a deployment decision,
-  not a code change).
-- Caller identification by phone number against `customers.phone`.
-- Streaming STT, LLM-driven order extraction, structured read-back, and
-  affirmative confirmation (verbal "yes" or keypad press).
-- Writing `pending_orders` + `pending_order_lines` with
-  `intake_channel = 'PHONE_CALL'`, the agent's synthetic
-  `intake_worker_id`, an `intake_confidence` score, and the recorded
-  audio path.
-- An always-available human escape hatch: any caller utterance matching
-  "person", "human", "owner", or the local-language equivalent routes
-  the call to the depot lead's mobile.
-- Voicemail / async path: WhatsApp voice notes received off-hours land
-  as `intake_channel = 'WHATSAPP_VOICE'` rows with the same review
-  treatment as live calls; processed during business hours.
-
-Out of scope:
-- Outbound calls. The agent only answers; it never dials.
-- Payment collection over the phone.
-- Customer creation. If the caller's number is not already in
-  `customers.phone`, the call routes to a human. The agent never
-  inserts into `customers`.
-- Price negotiation, discount approval, or any pricing modification.
-  The agent quotes the customer's effective price (override → tier →
-  unit default, per Section 4) but the price is recomputed at
-  sale-conversion time and the customer-facing quote is "subject to
-  confirmation."
-- Sale completion. The agent only writes `pending_orders`; it never
-  inserts into `sales`. Conversion runs at depot, exactly as for any
-  other pending order.
-- Customer-facing self-service web/app. Feature-phone callers are the
-  whole audience.
-
-### 19.2 Stage sequence
-
-| Stage | Months | Deliverable |
-| ----- | ------ | ----------- |
-| 19-A | 1–2 (research, parallel to Phase 0) | Twenty real depot-lead calls recorded with consent. STT vendor evaluation across Whisper, Google STT, Deepgram on those recordings. Decision document: vendor + measured error rate on quantities and brand names. **No agent code yet.** |
-| 19-B | 3–6 (parallel to Phase 1–2) | Offline prototype: agent runs against recorded audio, produces `pending_orders` rows in a scratch DB. Iterate on prompt, confidence threshold, brand-disambiguation strategy. Not connected to a phone number. |
-| 19-C | 9–11 (Stage 4C of the operating plan) | Live deployment with two-customer whitelist. Forced `requires_review = 1` on every order regardless of confidence. Depot lead reviews every order before assignment for the first month. Weekly call recordings reviewed for systematic errors. |
-| 19-D | 11+ | Confidence threshold relaxes — orders above threshold skip the review queue and go straight to assignable status. Agent expansion to additional retailers, one at a time, after each shows a clean week. |
-
-19-A and 19-B happen during Counter's discipline-frozen phases. They do
-not touch Counter code. 19-C is the first stage that depends on Counter
-being deployed (Stage 4A) and the manual review flow being stable (Stage
-4B).
-
-### 19.3 Architecture
-
-The agent is a **separate Node process,** not part of the Electron app.
-It runs:
-
-- During 19-B: locally on a developer machine, against recorded audio.
-- During 19-C/D: either on the depot machine alongside Counter, exposed
-  to the telephony provider via Cloudflare Tunnel; or on a small cloud
-  VPS that writes to the depot DB over LAN sync when reachable and
-  buffers locally when not. The VPS path is operationally cleaner; the
-  depot-local path is closer to the offline-first principle. Pick at
-  19-C deployment time based on local internet reliability.
-
-Pipeline:
-
-```
-inbound call (Twilio webhook)
-  → caller-ID lookup against customers.phone
-  → if not whitelisted, transfer to depot lead's mobile
-  → streaming STT (Whisper / Deepgram / Google, vendor TBD per 19-A)
-  → LLM with strict tool-call schema → extract (product, quantity, unit) tuples
-  → apply customer priors (recent orders, default unit per SKU)
-  → read-back via TTS
-  → affirmative confirmation (verbal "yes" / keypad press)
-  → write pending_orders + pending_order_lines (over LAN sync if remote)
-  → write recording to <userData>/intake/<po-id>.wav
-```
-
-The same separate-DB sync model from Section 18.6 applies if the agent
-runs off-depot. The agent is a sync peer like the driver client; it
-writes only to `pending_orders`, `pending_order_lines`, and (read-only)
-queries `customers`, `products`, `product_units`.
-
-### 19.4 AGENT role
-
-A new synthetic worker role added in **migration 0034**
-(`agent_role.sql`) — Wave H takes 0033, the agent role shifts to 0034:
-
-```sql
-ALTER TABLE workers
-  -- existing CHECK becomes:
-  -- CHECK (role IN ('CASHIER','SUPERVISOR','OWNER','FOUNDER','DRIVER','AGENT'))
-```
-
-A single `worker` row is seeded for the agent (`id = 'w-agent-1'`,
-`role = 'AGENT'`, `pin_hash` = unused but non-null for schema
-compatibility). The agent never logs in via PIN — its identity is
-established by the process having direct DB access, the same way the
-driver client establishes identity by holding a device-bound auth token.
-
-Permitted operations (exhaustive):
-- Read `customers` filtered by phone, including `current_balance_pesewas`,
-  `empties_owed_count`, `blocked` flag, and `preferred_channel`.
-- Read `products` and `product_units` (active rows only).
-- Read recent `sales` and `pending_orders` for the calling customer
-  (for "the usual" priors).
-- Read `customer_price_overrides` for read-back quoting.
-- Insert into `pending_orders` and `pending_order_lines` with
-  `intake_channel ∈ {'PHONE_CALL', 'WHATSAPP_VOICE'}` and
-  `intake_worker_id = 'w-agent-1'`.
-- Update `pending_orders.status` only from `CREATED` to `CANCELLED`
-  (caller hung up before confirming, or explicitly cancelled).
-
-Forbidden (enforced both at IPC layer and at the SQL surface via row-level
-guards in service code):
-- Any write to `customers`.
-- Any write to pricing tables (`pricing_tiers`, `customer_price_overrides`).
-- Any insert into `sales`, `sale_lines`, `sale_payments`, or
-  `stock_movements`.
-- Any insert or update in `voids`, `breakage`, `consumption`,
-  `petty_cash_expenses`, `cash_counts`.
-- Day-lock seal or reopen.
-- Anything in `workers`, `suppliers`, `device_config`, settings.
-
-Enforcement: `requireAgentRoleOnly(session)` at every agent-IPC handler.
-The agent's process holds a session that is `AGENT`-scoped only;
-`requireOwnerLike()` and `requireDriverOrLikelier()` both fail for it.
-Audit-log rows from the agent carry `worker_id = 'w-agent-1'` and a
-distinguishable `device_id` (e.g. `agent-vps-1`) so a forensic query
-can isolate every agent-derived row.
-
-### 19.5 Lifecycle invariants
-
-- A pending_order created by the agent always starts at `status =
-  'CREATED'` with `requires_review = 1`. The pilot phase (19-C) keeps
-  `requires_review = 1` regardless of confidence; post-pilot it's
-  driven by `intake_confidence < threshold` (default 0.85, tunable in
-  `device_config`).
-- The agent never assigns a pending_order to a route_run. Assignment is
-  a depot-lead action.
-- Caller confirmation is mandatory and affirmative. "If you don't
-  object, I'll send it" defaults are forbidden. A read-back without an
-  explicit "yes" or keypad confirmation produces a `status = 'CREATED'`
-  row tagged `notes = 'UNCONFIRMED_HANGUP'` and `requires_review = 1`.
-- A caller can cancel mid-conversation. The agent writes a `status =
-  'CANCELLED'` row with `cancel_reason = 'CALLER_CANCELLED'`. No
-  pending_order_lines are written.
-- A blocked customer (`customers.blocked = 1`) reaches the agent only
-  if the whitelist filter accepts them; if accepted, the agent reads
-  back the order but tags `requires_review = 1` and `notes =
-  'BLOCKED_CUSTOMER_OVERRIDE_PENDING'` so the depot lead must explicitly
-  unblock or reject before assignment.
-- The recording is written before the `pending_order` insert is
-  committed, so every order has audio. If the recording fails to
-  persist, the agent transfers to a human and writes nothing — partial
-  state is the worst outcome and we choose to fail closed.
-
-### 19.6 Failure modes
-
-| Failure | Agent response |
-| ------- | -------------- |
-| Caller's phone not in `customers` (or not whitelisted) | Transfer to depot lead. Log attempt with `intake_recording_path` for follow-up. |
-| 3 consecutive STT failures (low confidence on the entire utterance, not just a token) | Apologise, transfer to depot lead. |
-| Customer asks for a product not in `products` (after fuzzy match against name + brand + barcode) | "I don't have that in our list right now — should I ask the depot to call you back about it?" If yes, write `CREATED` row with one line of `notes = 'UNRECOGNIZED:<utterance>'` and `requires_review = 1`. If no, no row written. |
-| Quantity exceeds the customer's median historical order by 5× | Read back with extra emphasis ("That's one hundred cases — is that correct?"). Confirm twice. Tag `notes = 'UNUSUAL_QUANTITY'` for review priority. |
-| Customer says "let me speak to a person" / Twi equivalent | Transfer immediately to depot lead's mobile. The agent listens for this phrase at every turn, not just at decision points. |
-| Customer hangs up mid-conversation, before confirmation | Write `CREATED` row with `notes = 'UNCONFIRMED_HANGUP'` if any product/quantity tuples were extracted, otherwise no row. Either way, alert the depot lead. |
-| Network partition between agent VPS and depot DB | Buffer the `pending_order` insert locally; sync on rejoin. Same idempotent push pattern as the driver client (Section 18.6). |
-| Customer asks for a price | Quote the effective price (override → tier → unit default), explicitly tagged "subject to confirmation at delivery." Final price is recomputed at conversion per Section 4. |
-| Customer is 90+ days past due (`current_balance_pesewas` exceeds aging-90+ threshold) | Refuse the order: "Your account is past due. Please call the depot to settle before placing a new order." Transfer to depot lead. We choose refuse over warn because warning a customer who doesn't act on it produces an order the depot has to refuse anyway, and the refusal call is more expensive than the upfront refusal. |
-| Two simultaneous calls from the same customer | Each call gets its own agent instance. Idempotency key is `(caller_phone, call_started_at_minute)`; duplicate orders within the same minute are merged at depot review. |
-
-### 19.7 Open questions
-
-- **Telephony cost at scale.** Twilio voice is convenient for the
-  pilot; per-minute pricing becomes meaningful at 50+ retailers. A
-  local SIP gateway with on-prem PBX (Asterisk/FreeSWITCH and a
-  Ghanaian SIM gateway box) is the cost-down path. Evaluate at 19-D
-  expansion, not before.
-- **Voicemail vs. live answer trade-off.** Off-hours, the agent could
-  either run unsupervised or send straight to voicemail. Lean
-  voicemail for now — async processing during business hours has the
-  depot lead in the loop, which is the safety we want. Revisit if the
-  pilot shows callers consistently calling outside business hours.
-- **STT vendor lock-in.** 19-A picks a vendor based on measured Twi
-  code-switching error rate. The agent should keep STT abstracted
-  behind an interface so a vendor swap is one config change, not a
-  rewrite.
-- **Confidence threshold tuning.** The default 0.85 is a guess. The
-  19-C pilot generates the dataset to tune it. Lower thresholds catch
-  more errors at the cost of more review-queue volume; the right
-  number is whatever balances depot-lead time against bad orders, and
-  that ratio is local-business-specific.
-- **Memory beyond recent orders.** The agent uses the customer's
-  recent orders as priors. A more aggressive design would maintain a
-  per-customer profile (default products, default cadence, typical
-  quantities by weekday). That's worth building only after the pilot
-  shows the simple recent-orders prior is the bottleneck.
-
-### 19.8 Non-deployment guardrails
-
-The agent must not be deployed against the family business until all of
-the following are true:
-- Counter Stage 4B has shipped and the manual `pending_orders` review
-  flow has been used in production for at least four weeks.
-- 19-A's STT vendor decision has been made on real recordings, not
-  vendor marketing material.
-- The two pilot retailers have been told they are pilot retailers and
-  agreed to call back any wrong order without going through the
-  delivery driver.
-- The depot lead has a tested transfer path to her own mobile and has
-  practiced taking transferred calls during 19-B.
-
-These are not optional. The single failure mode that wrecks this — a
-wrong delivery the retailer doesn't catch until the driver leaves —
-costs more in trust than the agent saves in a year. The guardrails buy
-that risk down to acceptable.
-
----
+If the business ever revisits voice/automated intake, the original
+agent design lives in git history (commit predating 2026-05-11).
+The new sections below would need to be retracted: this section's
+stub, the migration-0034 footnote in Section 16's schema state, the
+Section 20.3 migration-numbering parenthetical, and the
+intake-channel comment in Section 18.3. Nothing else in the spec
+depends on this section having a body.
 
 ## 20. Wave H — Customer performance & loyalty (planned, Stage 4B)
 
@@ -1171,8 +1008,8 @@ not on a dashboard.
 
 **Status: planned. Slated for Stage 4B in parallel with Wave G core, since
 it touches existing data only (no `pending_orders` dependency).** Owner
-remains free to defer to Stage 4C if Wave G timelines slip — Wave H is
-additive observability, not on the route-rollout critical path.
+remains free to defer Wave H to a later slot if Wave G timelines slip —
+Wave H is additive observability, not on the route-rollout critical path.
 
 ### 20.1 Scope and non-goals
 
@@ -1221,8 +1058,9 @@ slips.
 ### 20.3 Data model
 
 Migration **0033** (`loyalty.sql`) — Wave G migrations occupy 0029–0032,
-Wave H takes 0033, the AGENT role addition (Section 19.4) shifts to
-**0034**.
+Wave H takes 0033. (Migration 0034 was reserved for an AGENT role
+under Section 19; that section was scoped out on 2026-05-11 and the
+slot is unused.)
 
 ```sql
 -- Manual tier on the customer row. NULL = no manual tier; fall back to
@@ -1477,11 +1315,6 @@ captures every threshold change and every manual-tier write.
   useful at delivery time ("this retailer is `SLIPPING`, ask if
   anything is wrong"). Trivial addition to the read-only customer
   view drivers already have.
-- **Section 19 voice agent.** The agent already reads recent orders
-  for priors; it can also read `effective_tier` and engagement state
-  to tune behaviour: prompt-mention the new promo when a `SLIPPING`
-  customer calls; offer the tier-appropriate price quote
-  acknowledgement. Pure read; no agent-write surface required.
 - **Future Wave I (auto-pricing-on-tier).** If field experience shows
   the OWNER manually creating customer price overrides every time a
   tier changes, a future wave wires `loyalty_thresholds` to
